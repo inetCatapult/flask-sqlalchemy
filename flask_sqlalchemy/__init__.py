@@ -17,7 +17,6 @@ import functools
 import warnings
 import sqlalchemy
 from math import ceil
-from functools import partial
 from flask import _request_ctx_stack, abort, has_request_context, request
 from flask.signals import Namespace
 from operator import itemgetter
@@ -138,8 +137,8 @@ class SignallingSession(SessionBase):
     uses.  It extends the default session system with bind selection and
     modification tracking.
 
-    If you want to use a different session you can override the
-    :meth:`SQLAlchemy.create_session` function.
+    If you want to use a different session class you can override the
+    :meth:`SQLAlchemy.create_session_class` function.
 
     .. versionadded:: 2.0
 
@@ -148,12 +147,20 @@ class SignallingSession(SessionBase):
         to an external transaction.
     """
 
+    _db = None
+    _options = {}
+
     def __init__(self, db, autocommit=False, autoflush=True, app=None, **options):
+        if db is None:
+            db = self._db
         #: The application that this session belongs to.
         self.app = app = db.get_app()
         track_modifications = app.config['SQLALCHEMY_TRACK_MODIFICATIONS']
+        options.update(self._options)
+        options.setdefault('autocommit', autocommit)
+        options.setdefault('autoflush', autoflush)
         bind = options.pop('bind', None) or db.engine
-        binds = options.pop('binds', None) or db.get_binds(app)
+        binds = options.pop('binds', None) or db.get_binds(self.app)
 
         if track_modifications is None or track_modifications:
             _SessionSignalEvents.register(self)
@@ -757,21 +764,32 @@ class SQLAlchemy(object):
 
     def create_scoped_session(self, options=None):
         """Helper factory method that creates a scoped session.  It
-        internally calls :meth:`create_session`.
+        internally calls :meth:`create_session_class`.
         """
         if options is None:
             options = {}
-        scopefunc = options.pop('scopefunc', None)
-        return orm.scoped_session(partial(self.create_session, options),
-                                  scopefunc=scopefunc)
 
-    def create_session(self, options):
-        """Creates the session.  The default implementation returns a
+        scopefunc = options.pop('scopefunc', None)
+        session_class = self.create_session_class(options)
+
+        return orm.scoped_session(
+            orm.sessionmaker(class_=session_class),
+            scopefunc=scopefunc
+        )
+
+    def create_session_class(self, options):
+        """Creates the session class.  The default implementation returns a
         :class:`SignallingSession`.
 
         .. versionadded:: 2.0
         """
-        return SignallingSession(self, **options)
+
+        return type(
+            "SignallingSession", (SignallingSession, ), {
+                '_db': self,
+                '_options': options,
+            }
+        )
 
     def make_declarative_base(self, metadata=None):
         """Creates the declarative base."""
