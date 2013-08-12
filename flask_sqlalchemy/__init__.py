@@ -16,7 +16,6 @@ import time
 import functools
 import sqlalchemy
 from math import ceil
-from functools import partial
 from flask import _request_ctx_stack, abort
 from flask.signals import Namespace
 from operator import itemgetter
@@ -131,13 +130,14 @@ def _calling_context(app_path):
 
 
 class _SignallingSession(Session):
-
-    def __init__(self, db, autocommit=False, autoflush=False, **options):
-        self.app = db.get_app()
+    def __init__(self, bind=None, **options):
+        self.app = self._db.get_app()
         self._model_changes = {}
-        Session.__init__(self, autocommit=autocommit, autoflush=autoflush,
-                         bind=db.engine,
-                         binds=db.get_binds(self.app), **options)
+        options.update(self._options)
+        options.setdefault('autocommit', False)
+        options.setdefault('autoflush', False)
+        options.setdefault('binds', self._db.get_binds(self.app))
+        Session.__init__(self, bind=bind or self._db.engine, **options)
 
     def get_bind(self, mapper, clause=None):
         # mapper is None if someone tries to just get a connection
@@ -663,9 +663,19 @@ class SQLAlchemy(object):
         """Helper factory method that creates a scoped session."""
         if options is None:
             options = {}
-        scopefunc=options.pop('scopefunc', None)
+
+        scopefunc = options.pop('scopefunc', None)
+
+        session_class = type(
+            "SignallingSession", (_SignallingSession, ), {
+                '_db': self,
+                '_options': options,
+            }
+        )
+
         return orm.scoped_session(
-            partial(_SignallingSession, self, **options), scopefunc=scopefunc
+            orm.sessionmaker(class_=session_class),
+            scopefunc=scopefunc
         )
 
     def make_declarative_base(self):
