@@ -159,6 +159,10 @@ class SignallingSession(SessionBase):
         options.update(self._options)
         options.setdefault('autocommit', autocommit)
         options.setdefault('autoflush', autoflush)
+        options.setdefault('bind', db.engine)
+        options.setdefault('binds', db.get_binds(self.app))
+        options.pop('autocommit', None)
+        options.pop('autoflush', None)
         bind = options.pop('bind', None) or db.engine
         binds = options.pop('binds', None) or db.get_binds(self.app)
 
@@ -773,7 +777,7 @@ class SQLAlchemy(object):
         session_class = self.create_session_class(options)
 
         return orm.scoped_session(
-            orm.sessionmaker(class_=session_class),
+            orm.sessionmaker(class_=session_class, db=self),
             scopefunc=scopefunc
         )
 
