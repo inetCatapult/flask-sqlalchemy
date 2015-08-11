@@ -1031,7 +1031,7 @@ class SQLAlchemy(object):
     def bases(self):
         return [self.Model] + self.external_bases
 
-    def register_base(self, Base):
+    def register_base(self, Base, force_query=False):
         """Register an external raw SQLAlchemy declarative base. 
         Allows usage of the base with our session management and 
         adds convenience query property using BaseQuery by default.
@@ -1039,10 +1039,11 @@ class SQLAlchemy(object):
         self.external_bases.append(Base)
         for c in Base._decl_class_registry.values():
             if isinstance(c, type):
-                if not hasattr(c, 'query') and not hasattr(c, 'query_class'):
+                if force_query or (not hasattr(c, 'query')
+                                   and not hasattr(c, 'query_class')):
                     c.query_class = BaseQuery
 
-                if not hasattr(c, 'query'):
+                if force_query or not hasattr(c, 'query'):
                     c.query = _QueryProperty(self)
 
 
